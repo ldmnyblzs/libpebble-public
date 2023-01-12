@@ -1,0 +1,9 @@
+[requires]
+boost/1.81.0
+cgal/5.5.1
+bliss/0.77
+gtest/1.12.1
+
+[generators]
+cmake_find_package
+cmake_paths
