@@ -107,6 +107,7 @@ int main(int argc, char **argv) {
                                                             Point, Scalar>>>("f:contour").first;
   pebble::contour_lines(mesh,
                         centroid,
+			mesh.points(),
                         edge_minimum_pm,
                         edge_minimum_barycentric,
                         face_center_pm,
