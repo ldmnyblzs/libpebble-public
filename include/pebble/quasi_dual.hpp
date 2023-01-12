@@ -32,7 +32,7 @@ Graph quasi_dual(const Graph &graph,
       put(vertex_type, new_min, VertexType::MIN);
       EdgeIterator edges_begin, edges_end;
       boost::tie(edges_begin, edges_end) = out_edges(vertex, graph);
-      if (boost::out_degree(vertex, graph) > 1) {
+      if (out_degree(vertex, graph) > 1) {
 	for (EdgeIterator edge1 = edges_begin;
 	     boost::next(edge1) != edges_end;
 	     edge1++) {
@@ -50,7 +50,7 @@ Graph quasi_dual(const Graph &graph,
 	    }
 	  }
 	}
-      } else if (boost::out_degree(vertex, graph) == 1) {
+      } else if (out_degree(vertex, graph) == 1) {
 	const GraphVertex saddle = target(*edges_begin, graph);
 	const GraphEdge edge = *(out_edges(saddle, graph).first);
 	const GraphVertex max = target(edge, graph);

@@ -1,0 +1,9 @@
+# ignore Emacs temporary files
+*~
+\#*\#
+.\#*
+# ignore the build folder except for the conanfile
+/build/*
+!/build/conanenv
+/build/conanenv/*
+!/build/conanenv/conanfile.txt
