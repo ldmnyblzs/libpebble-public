@@ -8,7 +8,7 @@ The source code is organized using the following directory structure:
 - `build`: binary output directory, see the Compilation section below for more information on how to build the binaries
   - `conanenv`: contains the files required to set up the build environment
 - `example`: contains examples of using the library
-  - `pebble-cli.cpp`: this example takes the 3D scan and the primary class of a pebble and calculates its secondary and tertiary classes along with numerous other shape descriptors
+  - `pebble-cli.cpp`: this example takes the 3D scan and the primary class of a pebble and calculates its secondary and tertiary classes along with numerous other shape descriptors. Run the example with `pebble-cli -h` for the complete list of input and output values.
   - `graph2tikz.cpp`: this applications takes the alphanumerical encoding of a Reeb, Morse-Smale or master graph output by `pebble-cli` and draws its planar embedding in LaTeX format using the TikZ library
 - `include/pebble`: the source files of the header-only `libpebble` library
 - `test`: unit tests for some of the functions in the library

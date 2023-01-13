@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <fstream>
 #include <forward_list>
+#include <cstring>
 #include <boost/container/static_vector.hpp>
 #include <CGAL/centroid.h>
 #include <CGAL/Polygon_mesh_processing/compute_normal.h>
@@ -47,19 +48,47 @@ int count_type(const Master &master,
   return result;
 }
 
+void print_help(std::ostream &stream) {
+  stream << "Usage: pebble-cli FILE STABLE UNSTABLE\n"
+	 << "Calculate shape descriptors of the pebble in FILE and in the primary equilibrium class {STABLE,UNSTABLE}.\n\n"
+	 << "FILE must be in STereoLitography (STL) format.\n\n"
+	 << "The following values are printed in a semicolon separated list:\n"
+	 << "  - filename\n"
+	 << "  - STABLE and UNSTABLE parameters\n"
+	 << "  - axes of the approximating ellipsoid (a>b>c) and the axis ratios c/b and b/a\n"
+	 << "  - Zingg class of the pebble (disc, sphere, blade or rod)\n"
+	 << "  - volume (V) and surface area (A) of the mesh\n"
+	 << "  - isoperimetric ratio of the mesh (36*pi*V^2/A^3)\n"
+	 << "  - computed primary equilibrium class, approximating {STABLE,UNSTABLE} the best\n"
+	 << "  - an alphanumerical encoding of the master, Reeb and Morse-Smale graphs, and also the quasi dual of the Morse-Smale graph (the encodings of two graphs are equal if and only if they are isomorphic)\n";
+}
 
 int main(int argc, char **argv) {
   using namespace boost::math::constants;
   // parse options
-  if (argc < 4)
+  if (argc == 2 && std::strncmp(argv[1], "-h", 3) == 0) {
+    print_help(std::cout);
+    return EXIT_SUCCESS;
+  }
+  if (argc < 4) {
+    print_help(std::cerr);
     return EXIT_FAILURE;
+  }
   Mesh mesh;
   const bool read = pebble::convex_hull(argv[1], mesh);
-  if (!read || mesh.num_vertices() == 0)
+  if (!read || mesh.num_vertices() == 0) {
+    std::cerr << "pebble-cli: could not read file\n"
+	      << "Try 'pebble-cli -h' for more information.\n";
     return EXIT_FAILURE;
+  }
 
   const int stable_target = atoi(argv[2]);
   const int unstable_target = atoi(argv[3]);
+  if (stable_target < 1 || unstable_target < 1) {
+    std::cerr << "pebble-cli: could not parse primary equilibrium class\n"
+	      << "Try 'pebble-cli -h' for more information.\n";
+    return EXIT_FAILURE;
+  }
 
   const Point centroid = CGAL::centroid(mesh.points().begin(),
 					mesh.points().end());
