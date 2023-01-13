@@ -48,6 +48,10 @@ int count_type(const Master &master,
   return result;
 }
 
+/*!
+  \brief Print the help message on the given output stream.
+  \param stream the help text will be outputted to this stream
+ */
 void print_help(std::ostream &stream) {
   stream << "Usage: pebble-cli FILE STABLE UNSTABLE\n"
 	 << "Calculate shape descriptors of the pebble in FILE and in the primary equilibrium class {STABLE,UNSTABLE}.\n\n"
@@ -155,6 +159,7 @@ int main(int argc, char **argv) {
     mesh.add_property_map<HalfedgeHandle, VertexHandle>("h:unstable").first;
   pebble::ascending_curves(mesh,
                            centroid,
+			   mesh.points(),
                            face_center_pm,
                            edge_minimum_pm,
                            edge_minimum_barycentric,
