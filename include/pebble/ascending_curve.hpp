@@ -237,8 +237,8 @@ namespace pebble {
     \tparam SaddleIterator a model of InputIterator with
     boost::graph_traits<Mesh>::edge_descriptor as value
     \tparam SegmentPM a model of WritablePropertyMap with
-    boost::graph_traits<Mesh>::halfedge_descriptor as key and and a std::vector
-    of ascending_segment objects
+    boost::graph_traits<Mesh>::halfedge_descriptor as key and a std::vector
+    of ascending_segment objects as value
     \tparam UnstablePM a model of WritablePropertyMap with
     boost::graph_traits<Mesh>::halfedge_descriptor as key and
     boost::graph_traits<Mesh>::vertex_descriptor as value
@@ -259,10 +259,10 @@ namespace pebble {
     \param saddles_end the end of the range of edges with saddle
     \param segments a property map storing for every halfedge the segments of
     the saddle-unstable isolated ascending curve originating from the saddle on
-    the halfedge and going in the direction of the halfedge's target
+    the halfedge and ascending in the direction of the halfedge's target
     \param unstable a property map storing for every halfedge the unstable point
     at the end of the isolated ascending curve originating from the saddle on the
-    halfedge and going in the direction of the halfedge's target
+    halfedge and ascending in the direction of the halfedge's target
    */
   template <typename Mesh,
 	    typename Point,

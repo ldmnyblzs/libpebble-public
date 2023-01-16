@@ -1,3 +1,8 @@
+/*!
+  \file decode_graph.hpp
+  \brief Restore a graph from its alphanumerical encoding.
+*/
+
 #ifndef PEBBLE_DECODE_GRAPH_HPP
 #define PEBBLE_DECODE_GRAPH_HPP 1
 
@@ -8,46 +13,56 @@
 #include <boost/graph/graph_traits.hpp>
 
 namespace pebble {
-template <typename Master>
-void decode_graph(const std::string& encoded,
-		  Master &master) {
-  using MasterVertex = typename boost::graph_traits<Master>::vertex_descriptor;
-  using MasterEdge = typename boost::graph_traits<Master>::edge_descriptor;
+  /*!
+    \brief Restore a graph from its alphanumerical encoding.
+    
+    This method can only restore the topology of the graph, properties of vertices
+    and edges are not retained in the encoding. It is the responsibility of the
+    caller to keep track of the type of the graph (master, Morse-Smale, Reeb).
+    \tparam Master a model of MutableGraph
+    \param encoded the alphanumerical representation of the graph
+    \param master the output graph
+  */
+  template <typename Master>
+  void decode_graph(const std::string& encoded,
+		    Master &master) {
+    using MasterVertex = typename boost::graph_traits<Master>::vertex_descriptor;
+    using MasterEdge = typename boost::graph_traits<Master>::edge_descriptor;
   
-  std::vector<std::array<unsigned int, 2>> edges;
+    std::vector<std::array<unsigned int, 2>> edges;
 
-  std::optional<unsigned int> previous;
-  const std::size_t length = encoded.size();
-  std::size_t i = 0;
-  unsigned int last_vertex = 0;
-  while(i < length) {
-    unsigned int vertex = 0;
-    if (encoded[i] <= 'Z') {
-      vertex += (encoded[i] - 'A' + 1) * 26 + (encoded[i + 1] - 'a');
-      i += 2;
-    } else {
-      vertex += encoded[i] - 'a';
-      ++i;
+    std::optional<unsigned int> previous;
+    const std::size_t length = encoded.size();
+    std::size_t i = 0;
+    unsigned int last_vertex = 0;
+    while(i < length) {
+      unsigned int vertex = 0;
+      if (encoded[i] <= 'Z') {
+	vertex += (encoded[i] - 'A' + 1) * 26 + (encoded[i + 1] - 'a');
+	i += 2;
+      } else {
+	vertex += encoded[i] - 'a';
+	++i;
+      }
+      last_vertex = std::max(last_vertex, vertex);
+      if (previous.has_value()) {
+	edges.push_back({previous.value(), vertex});
+	previous.reset();
+      } else {
+	previous = vertex;
+      }
     }
-    last_vertex = std::max(last_vertex, vertex);
-    if (previous.has_value()) {
-      edges.push_back({previous.value(), vertex});
-      previous.reset();
-    } else {
-      previous = vertex;
+
+    std::vector<MasterVertex> vertices;
+    for (unsigned int i = 0; i <= last_vertex; ++i) {
+      const MasterVertex vertex = add_vertex(master);
+      vertices.push_back(vertex);
+      //put(index, vertex, i);
     }
-  }
 
-  std::vector<MasterVertex> vertices;
-  for (unsigned int i = 0; i <= last_vertex; ++i) {
-    const MasterVertex vertex = add_vertex(master);
-    vertices.push_back(vertex);
-    //put(index, vertex, i);
+    for (const auto &[source, target] : edges)
+      add_edge(vertices.at(source), vertices.at(target), master);
   }
-
-  for (const auto &[source, target] : edges)
-    add_edge(vertices.at(source), vertices.at(target), master);
-}
 };
 
 #endif // PEBBLE_DECODE_GRAPH_HPP

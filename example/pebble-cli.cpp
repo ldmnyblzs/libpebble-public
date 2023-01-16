@@ -179,6 +179,7 @@ int main(int argc, char **argv) {
     mesh.add_property_map<HalfedgeHandle, FaceHandle>("h:stable").first;
   pebble::descending_curves(mesh,
                             centroid,
+			    mesh.points(),
                             edge_minimum_pm,
                             face_center_pm,
                             face_barycentric_pm,
