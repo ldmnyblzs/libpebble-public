@@ -51,7 +51,7 @@ namespace pebble {
     bliss::Stats stats;
     const unsigned int *canonical = graph.canonical_form(stats, nullptr, nullptr);
 
-    std::set<std::pair<unsigned int, unsigned int>> edge_set;
+    std::multiset<std::pair<unsigned int, unsigned int>> edge_set;
 
     for (const MasterEdge &edge : boost::make_iterator_range(edges(master)))
       edge_set.insert(std::minmax(canonical[master[source(edge, master)].id],
