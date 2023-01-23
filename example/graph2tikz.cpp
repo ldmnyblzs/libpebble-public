@@ -3,26 +3,17 @@
   \brief Generate a figure from an encoded string of a graph.
 */
 
-#include <boost/pending/property.hpp>
 #include <cstdlib>
 #include <pebble/decode_graph.hpp>
 #include <boost/graph/adjacency_list.hpp>
-#include <boost/graph/make_connected.hpp>
-#include <boost/graph/make_biconnected_planar.hpp>
-#include <boost/graph/boyer_myrvold_planar_test.hpp>
-#include <boost/graph/make_maximal_planar.hpp>
-#include <boost/graph/planar_canonical_ordering.hpp>
-#include <boost/graph/chrobak_payne_drawing.hpp>
 #include <boost/graph/topology.hpp>
 #include <boost/property_map/property_map.hpp>
 #include <boost/graph/circle_layout.hpp>
-#include <boost/graph/random_layout.hpp>
 #include <boost/graph/kamada_kawai_spring_layout.hpp>
 #include <boost/graph/gursoy_atun_layout.hpp>
 #include <boost/graph/fruchterman_reingold.hpp>
 #include <sstream>
 #include <fstream>
-#include <boost/graph/graphviz.hpp>
 
 using Graph =
     boost::adjacency_list<boost::vecS, boost::vecS, boost::undirectedS,
@@ -32,37 +23,38 @@ using Graph =
 using GraphVertex = boost::graph_traits<Graph>::vertex_descriptor;
 using GraphEdge = boost::graph_traits<Graph>::edge_descriptor;
 using EdgeIterator = boost::graph_traits<Graph>::out_edge_iterator;
-
-using EmbeddingStorage = std::vector<std::vector<GraphEdge>>;
-using IdMap = boost::property_map<Graph, boost::vertex_index_t>::type;
-using EdgeIndexMap = boost::property_map<Graph, boost::edge_index_t>::type;
-using Embedding =
-    boost::iterator_property_map<EmbeddingStorage::iterator, IdMap>;
-
-struct Point {
-  std::size_t x;
-  std::size_t y;
-};
-using DrawingStorage = std::vector<Point>;
-using Drawing = boost::iterator_property_map<DrawingStorage::iterator, IdMap>;
 using Position = typename boost::convex_topology<2>::point_type;
 
-enum Quarter { NW, NE, SE, SW };
+/*!
+  \brief Print the help message on the given output stream.
+  \param stream the help text will be outputted to this stream
+ */
+void print_help(std::ostream &stream) {
+  stream << "Usage: graph2tikz reeb|morse CODE\n"
+	 << "Calculate the layout of the reeb or morse graph encoded as CODE.\n"
+	 << "The resulting LaTeX file is printed to the standard output.\n";
+}
 
 int main(int argc, char *argv[]) {
-  if (argc < 3)
+  if (argc == 2 && std::strncmp(argv[1], "-h", 3) == 0) {
+    print_help(std::cout);
+    return EXIT_SUCCESS;
+  }
+  if (argc < 3) {
+    print_help(std::cerr);
     return EXIT_FAILURE;
+  }
 
   Graph graph;
   pebble::decode_graph(argv[2], graph);
   int index = 0;
-  EdgeIndexMap edge_index = get(boost::edge_index, graph);
+  const auto edge_index = get(boost::edge_index, graph);
   for (const GraphEdge &edge : boost::make_iterator_range(edges(graph)))
     put(edge_index, edge, index++);
   const std::size_t n = num_vertices(graph);
   std::vector<Position> position_store(n);
-  auto position = boost::make_iterator_property_map(position_store.begin(),
-						    get(boost::vertex_index, graph));
+  const auto position = boost::make_iterator_property_map(position_store.begin(),
+							  get(boost::vertex_index, graph));
 
   if (strncmp(argv[1], "morse", 6) == 0) {
     boost::gursoy_atun_layout(graph,
