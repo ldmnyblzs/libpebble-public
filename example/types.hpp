@@ -26,6 +26,8 @@ using EdgeHandle = Mesh::Edge_index;
 using FaceHandle = Mesh::Face_index;
 using Barycentric = std::array<Scalar, 3>;
 
+PEBBLE_ADAPT_POINT_TYPE(Scalar, Point)
+
 using Simplex = std::variant<std::monostate, VertexHandle, EdgeHandle, FaceHandle>;
 
 struct VertexData {
@@ -34,6 +36,7 @@ struct VertexData {
   pebble::VertexType type;
   Simplex simplex;
   Scalar distance;
+  bool keep;
 };
 
 struct EdgeData {
@@ -42,9 +45,11 @@ struct EdgeData {
   bool contour;
 };
 
+// using Master =
+//     boost::adjacency_list<boost::listS, boost::listS, boost::bidirectionalS,
+//                           VertexData, EdgeData>;
 using Master =
-    boost::adjacency_list<boost::listS, boost::listS, boost::bidirectionalS,
-                          VertexData, EdgeData>;
+  boost::adjacency_list<boost::vecS, boost::vecS, boost::undirectedS, VertexData, EdgeData>;
 using MasterVertex = boost::graph_traits<Master>::vertex_descriptor;
 using MasterEdge = boost::graph_traits<Master>::edge_descriptor;
 

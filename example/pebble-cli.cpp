@@ -3,6 +3,7 @@
   \brief Classify a pebble stored in an STL file.
 */
 
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <forward_list>
@@ -23,16 +24,19 @@
 #include <pebble/descending_curve.hpp>
 #include <pebble/intersections.hpp>
 #include <pebble/sort_saddles.hpp>
-#include <pebble/cancel_saddle.hpp>
+#include <pebble/cancel_saddle3.hpp>
 #include <pebble/create_reeb.hpp>
 #include <pebble/encode_graph.hpp>
 #include <pebble/create_morse_smale.hpp>
 #include <pebble/get_saddles.hpp>
-#include <pebble/create_master_graph.hpp>
+#include <pebble/create_master_graph_2.hpp>
 #include <pebble/distance_from_centroid.hpp>
 #include <pebble/axes.hpp>
 #include <pebble/quasi_dual.hpp>
 #include <pebble/measures.hpp>
+//#include <pebble/classify_mesh_vertices.hpp>
+//#include <pebble/classify_master_vertices.hpp>
+#include <pebble/fit_paraboloid.hpp>
 
 #include "types.hpp"
 
@@ -79,7 +83,8 @@ int main(int argc, char **argv) {
     return EXIT_FAILURE;
   }
   Mesh mesh;
-  const bool read = pebble::convex_hull(argv[1], mesh);
+  bool convex;
+  const bool read = pebble::convex_hull(argv[1], mesh, convex);
   if (!read || mesh.num_vertices() == 0) {
     std::cerr << "pebble-cli: could not read file\n"
 	      << "Try 'pebble-cli -h' for more information.\n";
@@ -113,6 +118,10 @@ int main(int argc, char **argv) {
     mesh.add_property_map<EdgeHandle, Point>("e:minimum").first;
   const auto edge_minimum_barycentric =
     mesh.add_property_map<EdgeHandle, std::array<Scalar, 2>>("e:minimum_barycentric").first;
+  const auto mesh_vertex_type =
+    mesh.add_property_map<VertexHandle, pebble::VertexType>("v:type").first;
+  const auto mesh_vertex_paramin =
+    mesh.add_property_map<VertexHandle, Point>("v:paramin").first;
 
   // face and edge minimum
   pebble::face_center(mesh, centroid, face_center_pm, face_barycentric_pm, mesh.points());
@@ -121,6 +130,12 @@ int main(int argc, char **argv) {
   // classify edges and vertices based on the position of the face minimum
   pebble::edge_type(mesh, face_barycentric_pm, is_followed_pm);
   pebble::vertex_dividing(mesh, face_barycentric_pm, dividing);
+
+  // pebble::classify_mesh_vertices(mesh,
+  // 				 centroid,
+  // 				 get(boost::vertex_index, mesh),
+  // 				 mesh_vertex_type,
+  // 				 mesh_vertex_paramin);
 
   // find all the saddle points
   std::vector<EdgeHandle> edges_with_saddle;
@@ -236,105 +251,133 @@ int main(int argc, char **argv) {
                               get(&VertexData::simplex, master),
                               get(&EdgeData::type, master));
 
-  // set the hierarchy of saddles in the master graph
   pebble::distance_from_centroid(master,
                                  centroid,
                                  get(&VertexData::point, master),
                                  get(&VertexData::distance, master));
-  std::vector<MasterVertex> saddles_sorted;
-  pebble::sort_saddles(master,
-                       get(&VertexData::type, master),
-                       get(&VertexData::distance, master),
-                       get(&EdgeData::type, master),
-                       std::back_inserter(saddles_sorted));
+  
+  pebble::fit_paraboloid(mesh,
+			 mesh.points(),
+			 centroid,
+			 master,
+			 get(&VertexData::point, master),
+			 get(&VertexData::type, master),
+			 get(&VertexData::simplex, master),
+			 get(&VertexData::keep, master));
 
-  // {S, U} pair before canceling the saddle at the same index,
-  // the last saddle will not be cancelled
-  std::vector<std::pair<int, int>> su(1, std::make_pair(count_type(master, pebble::VertexType::MIN),
-							count_type(master, pebble::VertexType::MAX)));
-  std::vector<std::string> masters, reebs, morse_smales, duals;
+  int stable = count_type(master, pebble::VertexType::MIN);
+  int unstable = count_type(master, pebble::VertexType::MAX);
+  int saddle = stable + unstable - 2;
+  
+  std::array<int, 3> type_count{0};
+  for (const MasterVertex &vertex : boost::make_iterator_range(vertices(master)))
+    if (master[vertex].type != pebble::VertexType::INTERSECTION &&
+	master[vertex].keep)
+      type_count[static_cast<int>(master[vertex].type)]++;
+  const Scalar weight = static_cast<Scalar>(type_count[0]) / stable +
+    static_cast<Scalar>(type_count[1]) / unstable +
+    static_cast<Scalar>(type_count[2]) / saddle;
+  
+  std::map<Scalar, std::array<int, 2>> weights;
+  weights.emplace(weight, std::array<int, 2>{stable, unstable});
 
-  unsigned int index = 0;
-  for (const MasterVertex vertex : boost::make_iterator_range(vertices(master)))
-    master[vertex].id = index++;
-
-  // walk the hierarchy of master graphs
-  // and generate the Reeb and Morse-Smale graphs
-  {
-    const int min_count = count_type(master, pebble::VertexType::MIN);
-    const int max_count = count_type(master, pebble::VertexType::MAX);
-    masters.push_back(pebble::encode_graph(master));
-    {
-      Master reeb = pebble::create_reeb(master, get(&EdgeData::type, master));
-      unsigned int index = 0;
-      for (const MasterVertex vertex : boost::make_iterator_range(vertices(reeb)))
-	reeb[vertex].id = index++;
-      reebs.push_back(pebble::encode_graph(reeb));
+  bool run = true;
+  while (run && saddle > 2) {
+    std::map<Scalar, std::array<MasterVertex, 3>> persistence;
+    for (const MasterVertex &saddle : boost::make_iterator_range(vertices(master))) {
+      if (master[saddle].type == pebble::VertexType::SADDLE) {
+	std::vector<MasterVertex> stables;
+	std::vector<MasterVertex> unstables;
+	for (const MasterEdge &ascending : boost::make_iterator_range(out_edges(saddle, master))) {
+	  if (master[ascending].type == pebble::EdgeType::ASCENDING) {
+	    const MasterVertex adjacent = target(ascending, master);
+	    switch (master[adjacent].type) {
+	    case pebble::VertexType::MIN:
+	      stables.push_back(adjacent);
+	      break;
+	    case pebble::VertexType::MAX:
+	      unstables.push_back(adjacent);
+	      break;
+	    default:
+	      break;
+	    }
+	  }
+	}
+	MasterVertex cancellable;
+	MasterVertex kept;
+	MasterVertex cancelled;
+	bool found = false;
+	if ((stables.size() == 2
+	     && unstables.size() == 1
+	     && stables.at(0) == stables.at(1)) ||
+	    (stables.size() == 1
+	     && unstables.size() == 2
+	     && unstables.at(0) == unstables.at(1))) {
+	  cancellable = saddle;
+	  if ((master[saddle].distance - master[stables.at(0)].distance) >
+	      (master[unstables.at(0)].distance - master[saddle].distance)) {
+	    kept = stables.at(0);
+	    cancelled = unstables.at(0);
+	  } else {
+	    kept = unstables.at(0);
+	    cancelled = stables.at(0);
+	  }
+	  found = true;
+	} else if (stables.size() == 2 && stables.at(0) != stables.at(1)) {
+	  cancellable = saddle;
+	  if (master[stables.at(0)].distance <
+	      master[stables.at(1)].distance) {
+	    kept = stables.at(0);
+	    cancelled = stables.at(1);
+	  } else {
+	    kept = stables.at(1);
+	    cancelled = stables.at(0);
+	  }
+	  found = true;
+	} else if (unstables.size() == 2 && unstables.at(0) != unstables.at(1)) {
+	  cancellable = saddle;
+	  if (master[unstables.at(0)].distance >
+	      master[unstables.at(1)].distance) {
+	    kept = unstables.at(0);
+	    cancelled = unstables.at(1);
+	  } else {
+	    kept = unstables.at(1);
+	    cancelled = unstables.at(0);
+	  }
+	  found = true;
+	}
+	if (found)
+	  persistence.emplace(abs(master[cancellable].distance - master[cancelled].distance),
+			      std::array<MasterVertex, 3>{cancellable, kept, cancelled});
+      }
     }
-    {
-      Master ms = pebble::create_morse_smale(master,
-                                             get(&VertexData::type, master),
-                                             get(&EdgeData::type, master));
-      unsigned int index = 0;
-      for (const MasterVertex vertex : boost::make_iterator_range(vertices(ms)))
-	ms[vertex].id = index++;
-      morse_smales.push_back(pebble::encode_graph(ms));
+    const auto first = persistence.cbegin();
+    if (first == persistence.cend()) {
+      run = false;
+    } else {
+      const auto [cancellable, kept, cancelled] = first->second;
+      pebble::cancel_saddle(master,
+			    get(&VertexData::type, master),
+			    get(&EdgeData::type, master),
+			    cancellable,
+			    kept,
+			    cancelled);
+
+      stable = count_type(master, pebble::VertexType::MIN);
+      unstable = count_type(master, pebble::VertexType::MAX);
+      saddle--;
+      std::array<int, 3> type_count{0};
+      for (const MasterVertex &vertex : boost::make_iterator_range(vertices(master)))
+	if (master[vertex].type != pebble::VertexType::INTERSECTION &&
+	    master[vertex].keep)
+	  type_count[static_cast<int>(master[vertex].type)]++;
+      const Scalar weight = static_cast<Scalar>(type_count[0]) / stable +
+	static_cast<Scalar>(type_count[1]) / unstable +
+	static_cast<Scalar>(type_count[2]) / saddle;
       
-      Master dual = pebble::quasi_dual(ms, get(&VertexData::type, master));
-      index = 0;
-      for (const MasterVertex vertex : boost::make_iterator_range(vertices(dual)))
-	dual[vertex].id = index++;
-      duals.push_back(pebble::encode_graph(dual));
+      weights.emplace(weight, std::array<int, 2>{stable, unstable});
     }
   }
-  for (const MasterVertex &saddle : saddles_sorted) {
-    pebble::cancel_saddle(master,
-                          get(&VertexData::type, master),
-                          get(&VertexData::distance, master),
-                          get(&EdgeData::type, master),
-                          saddle);
-
-    unsigned int index = 0;
-    for (const MasterVertex vertex : boost::make_iterator_range(vertices(master)))
-      master[vertex].id = index++;
-
-    const int min_count = count_type(master, pebble::VertexType::MIN);
-    const int max_count = count_type(master, pebble::VertexType::MAX);
-
-    su.emplace_back(min_count, max_count);
-    masters.push_back(pebble::encode_graph(master));
-    {
-      Master reeb = pebble::create_reeb(master, get(&EdgeData::type, master));
-      unsigned int index = 0;
-      for (const MasterVertex vertex : boost::make_iterator_range(vertices(reeb)))
-	reeb[vertex].id = index++;
-      reebs.push_back(pebble::encode_graph(reeb));
-    }
-    {
-      Master ms = pebble::create_morse_smale(master,
-                                             get(&VertexData::type, master),
-                                             get(&EdgeData::type, master));
-      unsigned int index = 0;
-      for (const MasterVertex vertex : boost::make_iterator_range(vertices(ms)))
-	ms[vertex].id = index++;
-      morse_smales.push_back(pebble::encode_graph(ms));
-
-      Master dual = pebble::quasi_dual(ms, get(&VertexData::type, master));
-      index = 0;
-      for (const MasterVertex vertex : boost::make_iterator_range(vertices(dual)))
-	dual[vertex].id = index++;
-      duals.push_back(pebble::encode_graph(dual));
-    }
-  }
-
-  // find the {S, U} pair closest to the target
-  std::vector<int> difference;
-  difference.reserve(su.size());
-  for (const auto [s,u] : su)
-    difference.push_back(abs(s - stable_target) + abs(u - unstable_target));
-  std::size_t min_index = std::distance(difference.cbegin(),
-					min_element(difference.cbegin(),
-					difference.cend()));
 
   const std::array<Vector, 3> abc = pebble::axes(mesh, mesh.points());
   const Scalar a = sqrt(abc[0].squared_length());
@@ -359,12 +402,173 @@ int main(int argc, char **argv) {
 	    << vol << ';'
 	    << area << ';'
 	    << (36 * pi<Scalar>() * pow(vol, 2.0) / pow(area, 3.0)) << ';'
-	    << su[min_index].first << ';'
-	    << su[min_index].second << ';'
-	    << masters[min_index] << ';'
-	    << reebs[min_index] << ';'
-	    << morse_smales[min_index] << ';'
-	    << duals[min_index];
+	    << weights.rbegin()->second[0] << ';'
+	    << weights.rbegin()->second[1] << ';'
+	    << ";;;";
+	    // << masters[min_index] << ';'
+	    // << reebs[min_index] << ';'
+	    // << morse_smales[min_index] << ';'
+	    // << duals[min_index];
 
   return EXIT_SUCCESS;
 }
+
+	// if ((stables.size() == 2
+	//      && unstables.size() == 1
+	//      && stables.at(0) == stables.at(1)) ||
+	//     (stables.size() == 1
+	//      && unstables.size() == 2
+	//      && unstables.at(0) == unstables.at(1))) {
+	//   if (!master[saddle].keep) {
+	//     cancellable = saddle;
+	//     if (master[stables.at(0)].keep &&
+	// 	!master[unstables.at(0)].keep) {
+	//       kept = stables.at(0);
+	//       cancelled = unstables.at(0);
+	//     } else if (!master[stables.at(0)].keep &&
+	// 	       master[unstables.at(0)].keep) {
+	//       kept = unstables.at(0);
+	//       cancelled = stables.at(0);
+	//     } else if ((master[saddle].distance - master[stables.at(0)].distance) >
+	// 	       (master[unstables.at(0)].distance - master[saddle].distance)) {
+	//       kept = stables.at(0);
+	//       cancelled = unstables.at(0);
+	//     } else {
+	//       kept = unstables.at(0);
+	//       cancelled = stables.at(0);
+	//     }
+	//     run = true;
+	//     //break;
+	//   } else {
+	//     if (master[stables.at(0)].keep &&
+	// 	!master[unstables.at(0)].keep) {
+	//       cancellable = saddle;
+	//       kept = stables.at(0);
+	//       cancelled = unstables.at(0);
+	//       run = true;
+	//       //break;
+	//     } else if (!master[stables.at(0)].keep &&
+	// 	       master[unstables.at(0)].keep) {
+	//       cancellable = saddle;
+	//       kept = unstables.at(0);
+	//       cancelled = stables.at(0);
+	//       run = true;
+	//       //break;
+	//     } else if (!master[stables.at(0)].keep &&
+	// 	       !master[unstables.at(0)].keep) {
+	//       cancellable = saddle;
+	//       if ((master[saddle].distance - master[stables.at(0)].distance) >
+	// 	  (master[unstables.at(0)].distance - master[saddle].distance)) {
+	// 	kept = stables.at(0);
+	// 	cancelled = unstables.at(0);
+	//       } else {
+	// 	kept = unstables.at(0);
+	// 	cancelled = stables.at(0);
+	//       }
+	//       run = true;
+	//       //break;
+	//     }
+	//   }
+	// } else if (stables.size() == 2 && stables.at(0) != stables.at(1)) {
+	//   if (!master[saddle].keep) {
+	//     cancellable = saddle;
+	//     if (master[stables.at(0)].keep &&
+	// 	!master[stables.at(1)].keep) {
+	//       kept = stables.at(0);
+	//       cancelled = stables.at(1);
+	//     } else if (!master[stables.at(0)].keep &&
+	// 	       master[stables.at(1)].keep) {
+	//       kept = stables.at(1);
+	//       cancelled = stables.at(0);
+	//     } else if (master[stables.at(0)].distance <
+	// 	       master[stables.at(1)].distance) {
+	//       kept = stables.at(0);
+	//       cancelled = stables.at(1);
+	//     } else {
+	//       kept = stables.at(1);
+	//       cancelled = stables.at(0);
+	//     }
+	//     run = true;
+	//     //break;
+	//   } else {
+	//     if (master[stables.at(0)].keep &&
+	// 	!master[stables.at(1)].keep) {
+	//       cancellable = saddle;
+	//       kept = stables.at(0);
+	//       cancelled = stables.at(1);
+	//       run = true;
+	//       //break;
+	//     } else if (!master[stables.at(0)].keep &&
+	// 	       master[stables.at(1)].keep) {
+	//       cancellable = saddle;
+	//       kept = stables.at(1);
+	//       cancelled = stables.at(0);
+	//       run = true;
+	//       //break;
+	//     } else if (!master[stables.at(0)].keep &&
+	// 	       !master[stables.at(1)].keep) {
+	//       cancellable = saddle;
+	//       if (master[stables.at(0)].distance <
+	// 	  master[stables.at(1)].distance) {
+	// 	kept = stables.at(0);
+	// 	cancelled = stables.at(1);
+	//       } else {
+	// 	kept = stables.at(1);
+	// 	cancelled = stables.at(0);
+	//       }
+	//       run = true;
+	//       //break;
+	//     }	    
+	//   }
+	// } else if (unstables.size() == 2 && unstables.at(0) != unstables.at(1)) {
+	//   if (!master[saddle].keep) {
+	//     cancellable = saddle;
+	//     if (master[unstables.at(0)].keep &&
+	// 	!master[unstables.at(1)].keep) {
+	//       kept = unstables.at(0);
+	//       cancelled = unstables.at(1);
+	//     } else if (!master[unstables.at(0)].keep &&
+	// 	       master[unstables.at(1)].keep) {
+	//       kept = unstables.at(1);
+	//       cancelled = unstables.at(0);
+	//     } else if (master[unstables.at(0)].distance >
+	// 	       master[unstables.at(1)].distance) {
+	//       kept = unstables.at(0);
+	//       cancelled = unstables.at(1);
+	//     } else {
+	//       kept = unstables.at(1);
+	//       cancelled = unstables.at(0);
+	//     }
+	//     run = true;
+	//     //break;
+	//   } else {
+	//     if (master[unstables.at(0)].keep &&
+	// 	!master[unstables.at(1)].keep) {
+	//       cancellable = saddle;
+	//       kept = unstables.at(0);
+	//       cancelled = unstables.at(1);
+	//       run = true;
+	//       //break;
+	//     } else if (!master[unstables.at(0)].keep &&
+	// 	       master[unstables.at(1)].keep) {
+	//       cancellable = saddle;
+	//       kept = unstables.at(1);
+	//       cancelled = unstables.at(0);
+	//       run = true;
+	//       //break;
+	//     } else if (!master[unstables.at(0)].keep &&
+	// 	       !master[unstables.at(1)].keep) {
+	//       cancellable = saddle;
+	//       if (master[unstables.at(0)].distance >
+	// 	  master[unstables.at(1)].distance) {
+	// 	kept = unstables.at(0);
+	// 	cancelled = unstables.at(1);
+	//       } else {
+	// 	kept = unstables.at(1);
+	// 	cancelled = unstables.at(0);
+	//       }
+	//       run = true;
+	//       //break;
+	//     }
+	//   }
+	// }
