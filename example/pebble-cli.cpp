@@ -34,20 +34,11 @@
 #include <pebble/quasi_dual.hpp>
 #include <pebble/measures.hpp>
 #include <pebble/fit_paraboloid.hpp>
+#include <pebble/master_weight.hpp>
 
 #include "types.hpp"
 
 using CGAL::Polygon_mesh_processing::compute_face_normals;
-
-int count_type(const Master &master,
-	       const pebble::VertexType &type) {
-  // TODO: this is not very optimal
-  int result = 0;
-  for (const MasterVertex &vertex : boost::make_iterator_range(vertices(master)))
-    if (master[vertex].type == type)
-      ++result;
-  return result;
-}
 
 /*!
   \brief Print the help message on the given output stream.
@@ -260,9 +251,21 @@ int main(int argc, char **argv) {
 
   // {S, U} pair before canceling the saddle at the same index,
   // the last saddle will not be cancelled
-  std::vector<std::pair<int, int>> su(1, std::make_pair(count_type(master, pebble::VertexType::MIN),
-							count_type(master, pebble::VertexType::MAX)));
+  int stable = pebble::count_type(master,
+				  get(&VertexData::type, master),
+				  pebble::VertexType::MIN);
+  int unstable = pebble::count_type(master,
+				    get(&VertexData::type, master),
+				    pebble::VertexType::MAX);
+  std::vector<std::pair<int, int>> su(1, std::make_pair(stable, unstable));
   std::vector<std::string> masters, reebs, morse_smales, duals;
+
+  std::size_t hierarchy = 0;
+  std::map<Scalar, std::size_t> weights;
+  weights.emplace(pebble::master_weight(master,
+					get(&VertexData::type, master),
+					get(&VertexData::keep, master)),
+		  hierarchy++);
 
   unsigned int index = 0;
   for (const MasterVertex vertex : boost::make_iterator_range(vertices(master)))
@@ -271,8 +274,6 @@ int main(int argc, char **argv) {
   // walk the hierarchy of master graphs
   // and generate the Reeb and Morse-Smale graphs
   {
-    const int min_count = count_type(master, pebble::VertexType::MIN);
-    const int max_count = count_type(master, pebble::VertexType::MAX);
     masters.push_back(pebble::encode_graph(master));
     {
       Master reeb = pebble::create_reeb(master, get(&EdgeData::type, master));
@@ -308,10 +309,19 @@ int main(int argc, char **argv) {
     for (const MasterVertex vertex : boost::make_iterator_range(vertices(master)))
       master[vertex].id = index++;
 
-    const int min_count = count_type(master, pebble::VertexType::MIN);
-    const int max_count = count_type(master, pebble::VertexType::MAX);
+    stable = pebble::count_type(master,
+				get(&VertexData::type, master),
+				pebble::VertexType::MIN);
+    unstable = pebble::count_type(master,
+				  get(&VertexData::type, master),
+				  pebble::VertexType::MAX);
 
-    su.emplace_back(min_count, max_count);
+    su.emplace_back(stable, unstable);
+    weights.emplace(pebble::master_weight(master,
+					  get(&VertexData::type, master),
+					  get(&VertexData::keep, master)),
+		    hierarchy++);
+
     masters.push_back(pebble::encode_graph(master));
     {
       Master reeb = pebble::create_reeb(master, get(&EdgeData::type, master));
@@ -371,6 +381,8 @@ int main(int argc, char **argv) {
 	    << (36 * pi<Scalar>() * pow(vol, 2.0) / pow(area, 3.0)) << ';'
 	    << su[min_index].first << ';'
 	    << su[min_index].second << ';'
+	    << su[weights.rbegin()->second].first << ';'
+	    << su[weights.rbegin()->second].second << ';'
 	    << masters[min_index] << ';'
 	    << reebs[min_index] << ';'
 	    << morse_smales[min_index] << ';'
