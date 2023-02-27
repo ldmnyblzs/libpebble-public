@@ -28,12 +28,15 @@ using Barycentric = std::array<Scalar, 3>;
 
 using Simplex = std::variant<std::monostate, VertexHandle, EdgeHandle, FaceHandle>;
 
+PEBBLE_ADAPT_POINT_TYPE(Scalar, Point)
+
 struct VertexData {
   unsigned int id = 0;
   Point point;
   pebble::VertexType type;
   Simplex simplex;
   Scalar distance;
+  bool keep;
 };
 
 struct EdgeData {

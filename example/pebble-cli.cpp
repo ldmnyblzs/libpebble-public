@@ -33,6 +33,7 @@
 #include <pebble/axes.hpp>
 #include <pebble/quasi_dual.hpp>
 #include <pebble/measures.hpp>
+#include <pebble/fit_paraboloid.hpp>
 
 #include "types.hpp"
 
@@ -235,6 +236,15 @@ int main(int argc, char **argv) {
                               get(&VertexData::type, master),
                               get(&VertexData::simplex, master),
                               get(&EdgeData::type, master));
+
+  pebble::fit_paraboloid(mesh,
+			 mesh.points(),
+			 centroid,
+			 master,
+			 get(&VertexData::point, master),
+			 get(&VertexData::type, master),
+			 get(&VertexData::simplex, master),
+			 get(&VertexData::keep, master));
 
   // set the hierarchy of saddles in the master graph
   pebble::distance_from_centroid(master,
