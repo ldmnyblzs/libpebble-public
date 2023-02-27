@@ -3,6 +3,7 @@ boost/1.81.0
 cgal/5.5.1
 bliss/0.77
 gtest/1.12.1
+eigen/3.3.9
 
 [generators]
 cmake_find_package
