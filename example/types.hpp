@@ -3,6 +3,7 @@
   \brief The types storing the mesh and the master graph in pebble-cli.
 */
 
+#include <boost/graph/properties.hpp>
 #ifndef TYPES_HPP
 #define TYPES_HPP 1
 
@@ -37,6 +38,9 @@ struct VertexData {
   Simplex simplex;
   Scalar distance;
   bool keep;
+  pebble::VertexType para_type;
+  unsigned int flock = 0;
+  boost::default_color_type color;
 };
 
 struct EdgeData {
@@ -46,7 +50,10 @@ struct EdgeData {
 };
 
 using Master =
-    boost::adjacency_list<boost::listS, boost::listS, boost::bidirectionalS,
+  boost::adjacency_list<boost::listS, boost::listS, boost::bidirectionalS,
+			VertexData, EdgeData>;
+using UndirectedMaster =
+    boost::adjacency_list<boost::listS, boost::listS, boost::undirectedS,
                           VertexData, EdgeData>;
 using MasterVertex = boost::graph_traits<Master>::vertex_descriptor;
 using MasterEdge = boost::graph_traits<Master>::edge_descriptor;

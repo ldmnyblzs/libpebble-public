@@ -136,23 +136,23 @@ namespace pebble {
 
   //! Type of a vertex in the master graph.
   enum class VertexType { MIN, MAX, SADDLE, INTERSECTION };
-  // inline std::ostream& operator<<(std::ostream &stream, const VertexType &value) {
-  //   switch(value) {
-  //   case VertexType::MIN:
-  //     stream << 'S';
-  //     break;
-  //   case VertexType::MAX:
-  //     stream << 'U';
-  //     break;
-  //   case VertexType::SADDLE:
-  //     stream << 'H';
-  //     break;
-  //   case VertexType::INTERSECTION:
-  //     stream << 'I';
-  //     break;
-  //   }
-  //   return stream;
-  // }
+  inline std::ostream& operator<<(std::ostream &stream, const VertexType &value) {
+    switch(value) {
+    case VertexType::MIN:
+      stream << 'S';
+      break;
+    case VertexType::MAX:
+      stream << 'U';
+      break;
+    case VertexType::SADDLE:
+      stream << 'H';
+      break;
+    case VertexType::INTERSECTION:
+      stream << 'I';
+      break;
+    }
+    return stream;
+  }
   
   //! Type of an edge in the master graph.
   enum class EdgeType {ASCENDING, CONTOUR};

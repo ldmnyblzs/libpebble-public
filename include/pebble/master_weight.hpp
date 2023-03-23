@@ -37,6 +37,8 @@ namespace pebble {
       if (get(vertex_type, vertex) != pebble::VertexType::INTERSECTION &&
 	  get(keep, vertex))
 	type_count[static_cast<int>(get(vertex_type, vertex))]++;
+    if (stable == 0 || unstable == 0 || saddle == 0)
+      return 0;
     
     return static_cast<double>(type_count[0]) / stable +
       static_cast<double>(type_count[1]) / unstable +

@@ -3,6 +3,10 @@
   \brief Classify a pebble stored in an STL file.
 */
 
+#include <boost/graph/properties.hpp>
+//#define PRINT 1
+
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <forward_list>
@@ -11,6 +15,10 @@
 #include <CGAL/centroid.h>
 #include <CGAL/Polygon_mesh_processing/compute_normal.h>
 #include <boost/math/constants/constants.hpp>
+#include <boost/graph/filtered_graph.hpp>
+#include <boost/graph/connected_components.hpp>
+#include <boost/graph/graphviz.hpp>
+#include <boost/graph/copy.hpp>
 
 #include <pebble/utility.hpp>
 #include <pebble/convex_hull.hpp>
@@ -59,6 +67,47 @@ void print_help(std::ostream &stream) {
 	 << "  - an alphanumerical encoding of the master, Reeb and Morse-Smale graphs, and also the quasi dual of the Morse-Smale graph (the encodings of two graphs are equal if and only if they are isomorphic)\n";
 }
 
+template <typename EdgeTypeMap>
+struct AscendingEdge {
+  EdgeTypeMap m_type;
+  AscendingEdge() {}
+  AscendingEdge(EdgeTypeMap edge_type) : m_type(edge_type) {}
+  template <typename Edge>
+  bool operator()(const Edge &edge) const {
+    return get(m_type, edge) == pebble::EdgeType::ASCENDING;
+  }
+};
+
+template <typename VertexTypeMap>
+struct TypedVertex {
+  VertexTypeMap m_poly_type;
+  bool m_use_poly;
+  VertexTypeMap m_para_type;
+  pebble::VertexType m_target;
+  TypedVertex() {}
+  TypedVertex(VertexTypeMap poly_type,
+	      bool use_poly,
+	      VertexTypeMap para_type,
+	      pebble::VertexType target)
+    : m_poly_type(poly_type),
+      m_use_poly(use_poly),
+      m_para_type(para_type),
+      m_target(target) {}
+  template <typename Vertex>
+  bool operator()(const Vertex &vertex) const {
+    return get(m_para_type, vertex) == m_target ||
+      (!m_use_poly || get(m_poly_type, vertex) == pebble::VertexType::SADDLE) &&
+      get(m_para_type, vertex) == pebble::VertexType::INTERSECTION;
+  }
+};
+
+using EdgeTypeMap =
+    boost::property_map<UndirectedMaster, pebble::EdgeType EdgeData::*>::type;
+using VertexTypeMap =
+    boost::property_map<UndirectedMaster, pebble::VertexType VertexData::*>::type;
+using FilteredGraph = boost::filtered_graph<UndirectedMaster, AscendingEdge<EdgeTypeMap>,
+                                            TypedVertex<VertexTypeMap>>;
+
 int main(int argc, char **argv) {
   using namespace boost::math::constants;
   // parse options
@@ -71,12 +120,36 @@ int main(int argc, char **argv) {
     return EXIT_FAILURE;
   }
   Mesh mesh;
-  const bool read = pebble::convex_hull(argv[1], mesh);
+  std::unordered_map<FaceHandle, bool> original_storage;
+  auto face_original_pm = boost::make_assoc_property_map(original_storage);
+  const bool read = pebble::convex_hull(argv[1], mesh, face_original_pm);
   if (!read || mesh.num_vertices() == 0) {
     std::cerr << "pebble-cli: could not read file\n"
 	      << "Try 'pebble-cli -h' for more information.\n";
     return EXIT_FAILURE;
   }
+
+  std::cerr << std::fixed;
+#ifdef PRINT
+  std::cerr << "color cyan\n";
+  for (const FaceHandle &face : mesh.faces()) {
+    const HalfedgeHandle he = halfedge(face, mesh);
+    if (face_original_pm[face])
+      std::cerr << "triangle ("
+		<< mesh.point(mesh.source(he)) << ") ("
+		<< mesh.point(mesh.target(he)) << ") ("
+		<< mesh.point(mesh.target(mesh.next(he))) << ")\n";
+  }
+  std::cerr << "color yellow\n";
+  for (const FaceHandle &face : mesh.faces()) {
+    const HalfedgeHandle he = halfedge(face, mesh);
+    if (!face_original_pm[face])
+      std::cerr << "triangle ("
+		<< mesh.point(mesh.source(he)) << ") ("
+		<< mesh.point(mesh.target(he)) << ") ("
+		<< mesh.point(mesh.target(mesh.next(he))) << ")\n";
+  }
+#endif
 
   const int stable_target = atoi(argv[2]);
   const int unstable_target = atoi(argv[3]);
@@ -228,14 +301,79 @@ int main(int argc, char **argv) {
                               get(&VertexData::simplex, master),
                               get(&EdgeData::type, master));
 
+  unsigned int index = 0;
+  for (const MasterVertex vertex : boost::make_iterator_range(vertices(master)))
+    master[vertex].id = index++;
+
   pebble::fit_paraboloid(mesh,
 			 mesh.points(),
+			 face_original_pm,
 			 centroid,
 			 master,
 			 get(&VertexData::point, master),
 			 get(&VertexData::type, master),
 			 get(&VertexData::simplex, master),
-			 get(&VertexData::keep, master));
+			 get(&VertexData::para_type, master));
+
+  int stable_target2 = 0;
+  int unstable_target2 = 0;
+  for (const MasterVertex &vertex : boost::make_iterator_range(vertices(master))) {
+    switch (master[vertex].para_type) {
+    case pebble::VertexType::MIN:
+      stable_target2++;
+#ifdef PRINT
+      std::cerr << "color green\npoint ("
+		<< master[vertex].point << ")\n";
+#endif
+      break;
+    case pebble::VertexType::MAX:
+      unstable_target2++;
+#ifdef PRINT
+      std::cerr << "color red\npoint ("
+		<< master[vertex].point << ")\n";
+#endif
+      break;
+    }
+  }
+
+  // UndirectedMaster undir;
+  // boost::copy_graph(master, undir, boost::vertex_index_map(get(&VertexData::id, master)));
+
+  // AscendingEdge<EdgeTypeMap> edge_filter(get(&EdgeData::type, undir));
+  // TypedVertex<VertexTypeMap> stable_filter(get(&VertexData::type, undir),
+  // 					   false,
+  // 					   get(&VertexData::para_type, undir),
+  // 					   pebble::VertexType::MIN);
+  // TypedVertex<VertexTypeMap> unstable_filter(get(&VertexData::type, undir),
+  // 					     false,
+  // 					     get(&VertexData::para_type, undir),
+  // 					     pebble::VertexType::MAX);
+  // FilteredGraph master_stable(undir, edge_filter, stable_filter);
+  // FilteredGraph master_unstable(undir, edge_filter, unstable_filter);
+
+  // for (const auto &vertex : boost::make_iterator_range(vertices(master_stable)))
+  //   master_stable[vertex].color = boost::default_color_type();
+  // boost::connected_components(master_stable,
+  // 			      get(&VertexData::flock, master_stable),
+  // 			      boost::color_map(get(&VertexData::color,
+  // 						   master_stable)));
+  // std::set<unsigned int> flocks_with_stable;
+  // for (const auto &vertex : boost::make_iterator_range(vertices(master_stable)))
+  //   if (master_stable[vertex].para_type == pebble::VertexType::MIN)
+  //     flocks_with_stable.insert(master_stable[vertex].flock);
+  // const int stable_target2 = flocks_with_stable.size();
+
+  // for (const auto &vertex : boost::make_iterator_range(vertices(master_unstable)))
+  //   master_unstable[vertex].color = boost::default_color_type();
+  // boost::connected_components(master_unstable,
+  // 			      get(&VertexData::flock, master_unstable),
+  // 			      boost::color_map(get(&VertexData::color,
+  // 						   master_unstable)));
+  // std::set<unsigned int> flocks_with_unstable;
+  // for (const auto &vertex : boost::make_iterator_range(vertices(master_unstable)))
+  //   if (master_unstable[vertex].para_type == pebble::VertexType::MAX)
+  //     flocks_with_unstable.insert(master_unstable[vertex].flock);
+  // const int unstable_target2 = flocks_with_unstable.size();
 
   // set the hierarchy of saddles in the master graph
   pebble::distance_from_centroid(master,
@@ -259,17 +397,6 @@ int main(int argc, char **argv) {
 				    pebble::VertexType::MAX);
   std::vector<std::pair<int, int>> su(1, std::make_pair(stable, unstable));
   std::vector<std::string> masters, reebs, morse_smales, duals;
-
-  std::size_t hierarchy = 0;
-  std::map<Scalar, std::size_t> weights;
-  weights.emplace(pebble::master_weight(master,
-					get(&VertexData::type, master),
-					get(&VertexData::keep, master)),
-		  hierarchy++);
-
-  unsigned int index = 0;
-  for (const MasterVertex vertex : boost::make_iterator_range(vertices(master)))
-    master[vertex].id = index++;
 
   // walk the hierarchy of master graphs
   // and generate the Reeb and Morse-Smale graphs
@@ -317,11 +444,6 @@ int main(int argc, char **argv) {
 				  pebble::VertexType::MAX);
 
     su.emplace_back(stable, unstable);
-    weights.emplace(pebble::master_weight(master,
-					  get(&VertexData::type, master),
-					  get(&VertexData::keep, master)),
-		    hierarchy++);
-
     masters.push_back(pebble::encode_graph(master));
     {
       Master reeb = pebble::create_reeb(master, get(&EdgeData::type, master));
@@ -351,10 +473,17 @@ int main(int argc, char **argv) {
   std::vector<int> difference;
   difference.reserve(su.size());
   for (const auto [s,u] : su)
-    difference.push_back(abs(s - stable_target) + abs(u - unstable_target));
-  std::size_t min_index = std::distance(difference.cbegin(),
-					min_element(difference.cbegin(),
-					difference.cend()));
+    difference.push_back(abs(u - unstable_target) + abs(s - stable_target));
+  const std::size_t min_index = std::distance(difference.begin(),
+					      min_element(difference.begin(),
+							  difference.end()));
+  std::vector<int> difference2;
+  difference2.reserve(su.size());
+  for (const auto [s,u] : su)
+    difference2.push_back(abs(u - unstable_target2));
+  const std::size_t min_index2 = std::distance(difference2.begin(),
+					       min_element(difference2.begin(),
+							   difference2.end()));
 
   const std::array<Vector, 3> abc = pebble::axes(mesh, mesh.points());
   const Scalar a = sqrt(abc[0].squared_length());
@@ -368,6 +497,8 @@ int main(int argc, char **argv) {
   std::cout << std::filesystem::path(argv[1]).stem().string() << ';'
 	    << stable_target << ';'
 	    << unstable_target << ';'
+	    << stable_target2 << ';'
+	    << unstable_target2 << ';'
 	    << a << ';'
 	    << b << ';'
 	    << c << ';'
@@ -381,8 +512,8 @@ int main(int argc, char **argv) {
 	    << (36 * pi<Scalar>() * pow(vol, 2.0) / pow(area, 3.0)) << ';'
 	    << su[min_index].first << ';'
 	    << su[min_index].second << ';'
-	    << su[weights.rbegin()->second].first << ';'
-	    << su[weights.rbegin()->second].second << ';'
+	    << su[min_index2].first << ';'
+	    << su[min_index2].second << ';'
 	    << masters[min_index] << ';'
 	    << reebs[min_index] << ';'
 	    << morse_smales[min_index] << ';'
